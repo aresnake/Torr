@@ -6,7 +6,7 @@ import sys
 import traceback
 from typing import Any, Dict, Optional
 
-from provider_headless import HeadlessBlenderProvider
+from providers.headless import HeadlessBlenderProvider
 
 JSON = Dict[str, Any]
 

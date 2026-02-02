@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import threading
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 JSON = Dict[str, Any]
@@ -25,6 +26,7 @@ class HeadlessBlenderProvider:
         self.blender_exe = self._resolve_blender_exe()
         self._proc: Optional[subprocess.Popen[str]] = None
         self._lock = threading.Lock()
+        self._last_stderr_line: Optional[str] = None
         self._start_blender()
 
     def _resolve_blender_exe(self) -> str:
@@ -46,7 +48,8 @@ class HeadlessBlenderProvider:
         if self._proc and self._proc.poll() is None:
             return
 
-        bridge = os.path.join(os.path.dirname(__file__), "blender_bridge.py")
+        root = Path(__file__).resolve().parents[1]
+        bridge = str(root / "blender_bridge.py")
         cmd = [self.blender_exe, "-b", "--factory-startup", "--python", bridge, "--"]
 
         self._proc = subprocess.Popen(
@@ -69,6 +72,7 @@ class HeadlessBlenderProvider:
                 for line in p.stderr:
                     line = line.rstrip("\n")
                     if line.strip():
+                        self._last_stderr_line = line
                         eprint("[blender-stderr]", line)
             except Exception:
                 pass
@@ -78,8 +82,17 @@ class HeadlessBlenderProvider:
         # Handshake: first stdout line must be JSON
         ready = self._proc.stdout.readline().strip()
         if not ready:
-            raise RuntimeError("Blender bridge did not send ready handshake.")
-        obj = json.loads(ready)
+            raise RuntimeError(
+                f"Blender bridge did not send ready handshake. "
+                f"raw_line={ready!r} bridge={bridge!r} last_stderr={self._last_stderr_line!r}"
+            )
+        try:
+            obj = json.loads(ready)
+        except Exception:
+            raise RuntimeError(
+                f"Blender bridge sent invalid JSON handshake. "
+                f"raw_line={ready!r} bridge={bridge!r} last_stderr={self._last_stderr_line!r}"
+            )
         if not obj.get("ok") or obj.get("type") != "bridge_ready":
             raise RuntimeError(f"Unexpected handshake from Blender: {obj}")
 

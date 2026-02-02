@@ -27,7 +27,7 @@ if __name__ == "__main__":
     env = os.environ.copy()
 
     p = subprocess.Popen(
-        [sys.executable, "mcp_server.py"],
+        [sys.executable, "-m", "server.mcp_server"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
