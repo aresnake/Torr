@@ -27,6 +27,7 @@ class HeadlessBlenderProvider:
         self._proc: Optional[subprocess.Popen[str]] = None
         self._lock = threading.Lock()
         self._last_stderr_line: Optional[str] = None
+        self._bridge_path: Optional[str] = None
         self._start_blender()
 
     def _resolve_blender_exe(self) -> str:
@@ -50,6 +51,7 @@ class HeadlessBlenderProvider:
 
         root = Path(__file__).resolve().parents[1]
         bridge = str(root / "blender_bridge.py")
+        self._bridge_path = bridge
         cmd = [self.blender_exe, "-b", "--factory-startup", "--python", bridge, "--"]
 
         self._proc = subprocess.Popen(
@@ -110,12 +112,36 @@ class HeadlessBlenderProvider:
             pass
         self._proc = None
 
+    def get_info(self) -> JSON:
+        return {
+            "blender_exe": self.blender_exe,
+            "bridge_path": self._bridge_path,
+        }
+
+    def health(self) -> JSON:
+        ok = self._proc is not None and self._proc.poll() is None
+        details: JSON = {
+            "process_alive": ok,
+        }
+        if self._proc is not None:
+            details["pid"] = self._proc.pid
+            details["returncode"] = self._proc.poll()
+        if self._last_stderr_line:
+            details["last_stderr_line"] = self._last_stderr_line
+        return {"ok": True, "provider_ok": ok, "details": details}
+
     def call(self, tool_name: str, tool_args: JSON) -> JSON:
         with self._lock:
             self._start_blender()
             assert self._proc and self._proc.stdin and self._proc.stdout
 
-            req = {"tool": tool_name, "args": tool_args}
+            tool_map = {
+                "world_observe": "world.observe",
+                "world_reset": "world.reset",
+                "world_mutate": "world.mutate",
+                "world_observe_diff": "world.observe_diff",
+            }
+            req = {"tool": tool_map.get(tool_name, tool_name), "args": tool_args}
 
             try:
                 self._proc.stdin.write(json.dumps(req, ensure_ascii=False) + "\n")

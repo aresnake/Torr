@@ -48,20 +48,30 @@ if __name__ == "__main__":
     r = send(p, {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}})
     print("[tools/list]", json.dumps(r, ensure_ascii=False))
 
-    # 2) reset
-    r = send(p, {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"world.reset","arguments":{"seed":0}}})
+    # 2) system_info
+    r = send(p, {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"system_info","arguments":{}}})
+    sys_info = tool_text(r)
+    print("[system_info]", sys_info)
+
+    # 3) world_health
+    r = send(p, {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"world_health","arguments":{}}})
+    health = tool_text(r)
+    print("[world_health]", health)
+
+    # 4) reset
+    r = send(p, {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"world_reset","arguments":{"seed":0}}})
     reset_out = tool_text(r)
     print("[reset_out]", reset_out)
     s_reset = reset_out["snapshot_id"]
 
-    # 3) observe -> Sx
-    r = send(p, {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"world.observe","arguments":{"level":"compact"}}})
+    # 5) observe -> Sx
+    r = send(p, {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"world_observe","arguments":{"level":"compact"}}})
     obs0 = tool_text(r)
     print("[observe0]", obs0)
     s0 = obs0["snapshot_id"]
 
-    # 4) mutate create cube
-    r = send(p, {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"world.mutate","arguments":{
+    # 6) mutate create cube
+    r = send(p, {"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"world_mutate","arguments":{
         "dsl_version":"1.0",
         "batch":[{"op":"object.create_primitive","args":{"type":"cube","name":"Chair_Seat","location":[0,0,0.45]}}]
     }}})
@@ -69,19 +79,19 @@ if __name__ == "__main__":
     print("[mutate]", mut)
     s1 = mut["snapshot_id"]
 
-    # 5) observe after mutate
-    r = send(p, {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"world.observe","arguments":{"level":"compact"}}})
+    # 7) observe after mutate
+    r = send(p, {"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"world_observe","arguments":{"level":"compact"}}})
     obs1 = tool_text(r)
     print("[observe1]", obs1)
     s2 = obs1["snapshot_id"]
 
-    # 6) diff between observe0 and mutate result
-    r = send(p, {"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"world.observe_diff","arguments":{"from":s0,"to":s1}}})
+    # 8) diff between observe0 and mutate result
+    r = send(p, {"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"world_observe_diff","arguments":{"from":s0,"to":s1}}})
     diff1 = tool_text(r)
     print("[diff s0->s1]", diff1)
 
-    # 7) diff between mutate result and observe1
-    r = send(p, {"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"world.observe_diff","arguments":{"from":s1,"to":s2}}})
+    # 9) diff between mutate result and observe1
+    r = send(p, {"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"world_observe_diff","arguments":{"from":s1,"to":s2}}})
     diff2 = tool_text(r)
     print("[diff s1->s2]", diff2)
 

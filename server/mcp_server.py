@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import os
+import platform
 import sys
 import traceback
 from typing import Any, Dict, Optional
@@ -32,64 +34,111 @@ def write_json(obj: JSON) -> None:
 
 
 def tools_list() -> JSON:
-    return {
-        "tools": [
-            {
-                "name": "world_observe",
-                "description": "Return a compact snapshot of the current Blender scene (persistent headless).",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "level": {"type": "string", "enum": ["compact"], "default": "compact"},
-                    },
-                    "additionalProperties": False,
+    tools = [
+        {
+            "name": "world_observe",
+            "description": "Return a compact snapshot of the current Blender scene (persistent headless).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "level": {"type": "string", "enum": ["compact"], "default": "compact"},
                 },
+                "additionalProperties": False,
             },
-            {
-                "name": "world_reset",
-                "description": "Reset the Blender scene to empty (dev tool).",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {"seed": {"type": "integer", "default": 0}},
-                    "additionalProperties": False,
-                },
+        },
+        {
+            "name": "world_reset",
+            "description": "Reset the Blender scene to empty (dev tool).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"seed": {"type": "integer", "default": 0}},
+                "additionalProperties": False,
             },
-            {
-                "name": "world_mutate",
-                "description": "Apply a batch of actions (DSL v1). V3 supports primitives, transforms, delete, collections.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "dsl_version": {"type": "string", "enum": ["1.0"]},
-                        "batch": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "op": {"type": "string"},
-                                    "args": {"type": "object"},
-                                },
-                                "required": ["op", "args"],
-                                "additionalProperties": False,
+        },
+        {
+            "name": "world_mutate",
+            "description": "Apply a batch of actions (DSL v1). V3 supports primitives, transforms, delete, collections.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "dsl_version": {"type": "string", "enum": ["1.0"]},
+                    "batch": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "op": {"type": "string"},
+                                "args": {"type": "object"},
                             },
+                            "required": ["op", "args"],
+                            "additionalProperties": False,
                         },
                     },
-                    "required": ["dsl_version", "batch"],
-                    "additionalProperties": False,
                 },
+                "required": ["dsl_version", "batch"],
+                "additionalProperties": False,
             },
-            {
-                "name": "world_observe_diff",
-                "description": "Compute a semantic diff between two snapshot_ids returned by world_observe/world_mutate.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {"from": {"type": "string"}, "to": {"type": "string"}},
-                    "required": ["from", "to"],
-                    "additionalProperties": False,
-                },
+        },
+        {
+            "name": "world_observe_diff",
+            "description": "Compute a semantic diff between two snapshot_ids returned by world_observe/world_mutate.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"from": {"type": "string"}, "to": {"type": "string"}},
+                "required": ["from", "to"],
+                "additionalProperties": False,
             },
-        ]
+        },
+        {
+            "name": "system_info",
+            "description": "Return runtime info for server/provider (versions, paths, blender exe).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "world_health",
+            "description": "Health check for the persistent Blender provider.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+    ]
+    tools = sorted(tools, key=lambda t: t.get("name", ""))
+    return {"tools": tools}
+
+
+def _normalize_ok(payload: Any) -> JSON:
+    if isinstance(payload, dict):
+        if "ok" in payload:
+            return payload
+        out = {"ok": True}
+        out.update(payload)
+        return out
+    return {"ok": True, "value": payload}
+
+
+def _error_payload(ex: Exception, trace: Optional[str]) -> JSON:
+    out: JSON = {
+        "ok": False,
+        "error_type": type(ex).__name__,
+        "error_message": str(ex),
     }
+    if trace:
+        out["trace"] = trace
+    return out
+
+
+def _short_trace() -> Optional[str]:
+    tb = traceback.format_exc()
+    if not tb:
+        return None
+    lines = tb.splitlines()
+    return "\n".join(lines[:20])
 
 
 def main() -> None:
@@ -107,19 +156,14 @@ def main() -> None:
     initialized = False
     negotiated_protocol = "2024-11-05"  # safe default
 
-    tool_aliases = {
-        "world.observe": "world_observe",
-        "world.reset": "world_reset",
-        "world.mutate": "world_mutate",
-        "world.observe_diff": "world_observe_diff",
+    allowed_tools = {
+        "world_observe",
+        "world_reset",
+        "world_mutate",
+        "world_observe_diff",
+        "system_info",
+        "world_health",
     }
-    tool_provider_names = {
-        "world_observe": "world.observe",
-        "world_reset": "world.reset",
-        "world_mutate": "world.mutate",
-        "world_observe_diff": "world.observe_diff",
-    }
-    allowed_tools = set(tool_provider_names.keys())
 
     while True:
         msg: Optional[JSON] = None
@@ -187,28 +231,49 @@ def main() -> None:
                 tool_name = params.get("name")
                 tool_args = params.get("arguments") or {}
 
-                if tool_name in tool_aliases:
-                    tool_name = tool_aliases[tool_name]
-
                 if tool_name not in allowed_tools:
+                    payload = {
+                        "ok": False,
+                        "error_type": "UnknownTool",
+                        "error_message": f"Unknown tool: {tool_name}",
+                    }
                     write_json(
                         {
                             "jsonrpc": "2.0",
                             "id": _id,
-                            "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"},
+                            "result": {
+                                "content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]
+                            },
                         }
                     )
                     continue
 
-                provider_tool = tool_provider_names.get(tool_name, tool_name)
-                out = provider.call(provider_tool, tool_args)
+                try:
+                    if tool_name == "system_info":
+                        payload = {
+                            "ok": True,
+                            "server": {
+                                "python_version": sys.version.split()[0],
+                                "platform": platform.platform(),
+                                "cwd": os.getcwd(),
+                            },
+                            "provider": provider.get_info(),
+                        }
+                    elif tool_name == "world_health":
+                        payload = provider.health()
+                        payload = _normalize_ok(payload)
+                    else:
+                        out = provider.call(tool_name, tool_args)
+                        payload = _normalize_ok(out)
+                except Exception as ex:
+                    payload = _error_payload(ex, _short_trace())
 
                 write_json(
                     {
                         "jsonrpc": "2.0",
                         "id": _id,
                         "result": {
-                            "content": [{"type": "text", "text": json.dumps(out, ensure_ascii=False)}]
+                            "content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]
                         },
                     }
                 )
