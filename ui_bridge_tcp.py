@@ -43,9 +43,89 @@ def _handle_request(req):
                     })
             return {"ok": True, "scene": bpy.context.scene.name, "object_count": len(objs), "objects": objs}
 
-        # placeholder: we'll wire mutate next
         if method == "world_mutate":
-            return {"ok": False, "error_type": "not_implemented", "error_message": "world_mutate not implemented yet in UI bridge."}
+            dsl_version = params.get("dsl_version")
+            batch = params.get("batch") or []
+            applied = 0
+            errors = []
+            warnings = []
+
+            if dsl_version != "1.0":
+                return {
+                    "ok": False,
+                    "dsl_version": dsl_version,
+                    "applied": applied,
+                    "errors": [
+                        {
+                            "op": "world_mutate",
+                            "args": params,
+                            "error_type": "unsupported_dsl_version",
+                            "error_message": f"unsupported dsl_version {dsl_version}",
+                        }
+                    ],
+                    "warnings": warnings,
+                }
+
+            for item in batch:
+                op = (item or {}).get("op")
+                args = (item or {}).get("args") or {}
+                try:
+                    if op == "add_cube":
+                        name = args.get("name")
+                        if not name:
+                            raise ValueError("name required")
+                        size = float(args.get("size", 1.0))
+                        location = args.get("location", [0.0, 0.0, 0.0])
+                        bpy.ops.mesh.primitive_cube_add(size=size, location=tuple(location))
+                        obj = bpy.context.active_object
+                        if obj is not None:
+                            obj.name = str(name)
+                        applied += 1
+                    elif op == "set_transform":
+                        name = args.get("name")
+                        if not name:
+                            raise ValueError("name required")
+                        obj = bpy.data.objects.get(str(name))
+                        if obj is None:
+                            raise ValueError(f"object not found: {name}")
+                        if "location" in args:
+                            loc = args.get("location")
+                            obj.location = loc
+                        if "rotation_euler" in args:
+                            rot = args.get("rotation_euler")
+                            obj.rotation_euler = rot
+                        if "scale" in args:
+                            sca = args.get("scale")
+                            obj.scale = sca
+                        applied += 1
+                    elif op == "delete_object":
+                        name = args.get("name")
+                        if not name:
+                            raise ValueError("name required")
+                        obj = bpy.data.objects.get(str(name))
+                        if obj is None:
+                            raise ValueError(f"object not found: {name}")
+                        bpy.data.objects.remove(obj, do_unlink=True)
+                        applied += 1
+                    else:
+                        raise ValueError(f"unknown op: {op}")
+                except Exception as e:
+                    errors.append(
+                        {
+                            "op": op,
+                            "args": args,
+                            "error_type": type(e).__name__,
+                            "error_message": str(e),
+                        }
+                    )
+
+            return {
+                "ok": len(errors) == 0,
+                "dsl_version": "1.0",
+                "applied": applied,
+                "errors": errors,
+                "warnings": warnings,
+            }
 
         return {"ok": False, "error_type": "unknown_method", "error_message": f"Unknown method: {method}"}
 

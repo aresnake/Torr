@@ -9,6 +9,7 @@ import traceback
 from typing import Any, Dict, Optional
 
 from providers.headless import HeadlessBlenderProvider
+from providers.ui_tcp import UiTcpBlenderProvider
 
 JSON = Dict[str, Any]
 
@@ -150,7 +151,10 @@ def main() -> None:
     except Exception:
         pass
 
-    provider = HeadlessBlenderProvider()
+    if os.environ.get("TORR_PROVIDER", "headless").lower() == "ui":
+        provider = UiTcpBlenderProvider()
+    else:
+        provider = HeadlessBlenderProvider()
 
     # Minimal MCP session state
     initialized = False
