@@ -19,7 +19,6 @@ def send(p, obj):
     return json.loads(line)
 
 def tool_text(resp):
-    # MCP tool result is in result.content[0].text as JSON string
     txt = resp["result"]["content"][0]["text"]
     return json.loads(txt)
 
@@ -40,37 +39,29 @@ if __name__ == "__main__":
 
     assert p.stdin and p.stdout and p.stderr
 
-    # Drain stderr so it never blocks
     t = threading.Thread(target=drain, args=("[stderr] ", p.stderr), daemon=True)
     t.start()
 
-    # 1) tools/list
     r = send(p, {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}})
     print("[tools/list]", json.dumps(r, ensure_ascii=False))
 
-    # 2) system_info
     r = send(p, {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"system_info","arguments":{}}})
     sys_info = tool_text(r)
     print("[system_info]", sys_info)
 
-    # 3) world_health
     r = send(p, {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"world_health","arguments":{}}})
     health = tool_text(r)
     print("[world_health]", health)
 
-    # 4) reset
     r = send(p, {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"world_reset","arguments":{"seed":0}}})
     reset_out = tool_text(r)
     print("[reset_out]", reset_out)
-    s_reset = reset_out["snapshot_id"]
 
-    # 5) observe -> Sx
     r = send(p, {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"world_observe","arguments":{"level":"compact"}}})
     obs0 = tool_text(r)
     print("[observe0]", obs0)
     s0 = obs0["snapshot_id"]
 
-    # 6) mutate create cube
     r = send(p, {"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"world_mutate","arguments":{
         "dsl_version":"1.0",
         "batch":[{"op":"object.create_primitive","args":{"type":"cube","name":"Chair_Seat","location":[0,0,0.45]}}]
@@ -79,20 +70,21 @@ if __name__ == "__main__":
     print("[mutate]", mut)
     s1 = mut["snapshot_id"]
 
-    # 7) observe after mutate
     r = send(p, {"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"world_observe","arguments":{"level":"compact"}}})
     obs1 = tool_text(r)
     print("[observe1]", obs1)
     s2 = obs1["snapshot_id"]
 
-    # 8) diff between observe0 and mutate result
-    r = send(p, {"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"world_observe_diff","arguments":{"from":s0,"to":s1}}})
-    diff1 = tool_text(r)
-    print("[diff s0->s1]", diff1)
+    # Diff is headless-only for now. In UI mode, snapshot ids are U*, so skip.
+    if str(s0).startswith("U") or str(s1).startswith("U") or str(s2).startswith("U"):
+        print("[diff skipped] ui provider does not support observe_diff yet.")
+    else:
+        r = send(p, {"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"world_observe_diff","arguments":{"from":s0,"to":s1}}})
+        diff1 = tool_text(r)
+        print("[diff s0->s1]", diff1)
 
-    # 9) diff between mutate result and observe1
-    r = send(p, {"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"world_observe_diff","arguments":{"from":s1,"to":s2}}})
-    diff2 = tool_text(r)
-    print("[diff s1->s2]", diff2)
+        r = send(p, {"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"world_observe_diff","arguments":{"from":s1,"to":s2}}})
+        diff2 = tool_text(r)
+        print("[diff s1->s2]", diff2)
 
     p.kill()
